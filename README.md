@@ -10,7 +10,7 @@ Hlavní okno skládá obrazovky a ukládá je do profilu. Vypnutá obrazovka je 
 
 ![Hlavní okno ShiftMon](docs/main-window.png)
 
-V možnostech se volí jazyk, tlačítko v záhlaví a programy, u kterých se tlačítko neukáže.
+V možnostech se volí jazyk, vzhled, tlačítko v záhlaví, programy bez tlačítka a rozpoznání pracoviště.
 
 ![Možnosti ShiftMon](docs/options.png)
 
