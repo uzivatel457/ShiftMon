@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>shiftmon.ico</ApplicationIcon>
+    <RootNamespace>ShiftMon</RootNamespace>
+    <AssemblyName>ShiftMon</AssemblyName>
+    <Version>1.1.0</Version>
+    <Product>ShiftMon</Product>
+    <Company>ShiftMon</Company>
+    <Description>Tlačítko v záhlaví okna a profily monitorů pro Windows.</Description>
+    <SatelliteResourceLanguages>cs</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>

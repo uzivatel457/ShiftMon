@@ -1,0 +1,12 @@
+bin/
+obj/
+dist/
+.vs/
+*.user
+*.log
+UltraMon_3.4.1_en_x64.msi
+ultramon-207-2.jpg
+images.jpg
+ultramon-review-lg1.jpg
+1197835939.png
+profiles_display.png
