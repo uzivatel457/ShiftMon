@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32;
+using ShiftMon.Profiles;
 
 namespace ShiftMon.App;
 
@@ -30,7 +32,7 @@ internal static class StartupRegistration
 
 internal static class ShortcutService
 {
-    public static void Create(string shortcutPath, string target, string arguments, string description)
+    public static void Create(string shortcutPath, string target, string arguments, string description, string? iconPath = null)
     {
         var shellType = Type.GetTypeFromProgID("WScript.Shell")
                         ?? throw new InvalidOperationException("Nelze vytvořit zástupce (WScript.Shell).");
@@ -41,9 +43,38 @@ internal static class ShortcutService
         shortcut.Arguments = arguments;
         shortcut.WorkingDirectory = Path.GetDirectoryName(target) ?? "";
         shortcut.Description = description;
-        shortcut.IconLocation = target + ",0";
+        shortcut.IconLocation = string.IsNullOrWhiteSpace(iconPath) ? target + ",0" : iconPath + ",0";
         shortcut.Save();
+        NotifyChanged(shortcutPath);
     }
+
+    public static void UpdateProfileShortcut(DisplayProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.ShortcutPath) || !File.Exists(profile.ShortcutPath))
+            return;
+        var icon = ProfileIcon.Write(profile);
+        Create(
+            profile.ShortcutPath,
+            AppPaths.CurrentExecutable,
+            "--apply-profile \"" + profile.Id + "\"",
+            Loc.T("ShiftMon profil: ", "ShiftMon profile: ") + profile.Name,
+            icon);
+    }
+
+    public static void NotifyChanged(string path)
+    {
+        try
+        {
+            SHChangeNotify(0x00002000, 0x0005, path, IntPtr.Zero);
+        }
+        catch
+        {
+            // Plocha si ikonu načte nejpozději při dalším zobrazení.
+        }
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern void SHChangeNotify(uint eventId, uint flags, string item, IntPtr item2);
 
     public static string? TargetOf(string shortcutPath)
     {

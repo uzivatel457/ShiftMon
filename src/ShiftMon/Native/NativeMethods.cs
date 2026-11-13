@@ -420,6 +420,21 @@ internal static class NativeMethods
     [DllImport("kernel32.dll")]
     public static extern bool AttachConsole(int dwProcessId);
 
+    public const uint ProcessQueryLimitedInformation = 0x1000;
+    public const uint GwChild = 5;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, StringBuilder lpExeName, ref int lpdwSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
     [DllImport("user32.dll")]
     public static extern bool DestroyIcon(IntPtr hIcon);
 

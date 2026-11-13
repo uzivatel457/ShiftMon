@@ -17,6 +17,7 @@ internal static class AppPaths
     public static string InstallDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppName);
 
+    public static string IconsDirectory => Path.Combine(DataDirectory, "icons");
     public static string ProfilesFile => Path.Combine(DataDirectory, "profiles.json");
     public static string SettingsFile => Path.Combine(DataDirectory, "settings.json");
     public static string PendingRevertFile => Path.Combine(DataDirectory, "pending-revert.json");

@@ -118,26 +118,30 @@ internal sealed class CaptionButtonManager : IDisposable
             Interlocked.Exchange(ref _posted, 0);
         }
 
-        if (!_settings().CaptionButton)
+        var settings = _settings();
+        if (!settings.CaptionButton)
             return;
 
+        var hidden = settings.HiddenExecutables();
         foreach (var hwnd in batch)
-            UpdateOne(hwnd);
+            UpdateOne(hwnd, hidden);
     }
 
     void RefreshAll()
     {
-        if (_disposed || !_settings().CaptionButton)
+        var settings = _settings();
+        if (_disposed || !settings.CaptionButton)
         {
             if (_buttons.Count > 0)
                 StopButtonsOnly();
             return;
         }
 
+        var hidden = settings.HiddenExecutables();
         var live = new HashSet<IntPtr>();
         NativeMethods.EnumWindows((hwnd, _) =>
         {
-            if (WindowEligibility.IsEligible(hwnd, _ourPid))
+            if (WindowEligibility.IsEligible(hwnd, _ourPid, hidden))
                 live.Add(hwnd);
             return true;
         }, IntPtr.Zero);
@@ -149,7 +153,7 @@ internal sealed class CaptionButtonManager : IDisposable
         }
 
         foreach (var hwnd in live)
-            UpdateOne(hwnd);
+            UpdateOne(hwnd, hidden);
     }
 
     void StopButtonsOnly()
@@ -159,9 +163,10 @@ internal sealed class CaptionButtonManager : IDisposable
         _buttons.Clear();
     }
 
-    void UpdateOne(IntPtr hwnd)
+    void UpdateOne(IntPtr hwnd, IReadOnlySet<string>? hidden = null)
     {
-        if (!WindowEligibility.IsEligible(hwnd, _ourPid) || !WindowEligibility.TryGetButtonRect(hwnd, out var rect))
+        hidden ??= _settings().HiddenExecutables();
+        if (!WindowEligibility.IsEligible(hwnd, _ourPid, hidden) || !WindowEligibility.TryGetButtonRect(hwnd, out var rect))
         {
             Remove(hwnd);
             return;

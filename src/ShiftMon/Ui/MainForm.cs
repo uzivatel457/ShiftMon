@@ -1,6 +1,7 @@
 using ShiftMon.App;
 using ShiftMon.Display;
 using ShiftMon.Profiles;
+using ShiftMon.Windows;
 
 namespace ShiftMon.Ui;
 
@@ -25,6 +26,7 @@ internal sealed class MainForm : Form
     readonly NumericUpDown _posX = new() { Minimum = -20000, Maximum = 20000, Width = 90 };
     readonly NumericUpDown _posY = new() { Minimum = -20000, Maximum = 20000, Width = 90 };
     readonly CheckBox _caption = new() { AutoSize = true };
+    readonly ListBox _hiddenPrograms = new() { IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle, Width = 640, Height = 130 };
     readonly CheckBox _picker = new() { AutoSize = true };
     readonly CheckBox _startup = new() { AutoSize = true };
     readonly CheckBox _updates = new() { AutoSize = true };
@@ -277,6 +279,7 @@ internal sealed class MainForm : Form
         languageRow.Controls.Add(_language);
         layout.Controls.Add(languageRow);
         layout.Controls.Add(_caption);
+        layout.Controls.Add(BuildHiddenPrograms());
         layout.Controls.Add(_picker);
         layout.Controls.Add(_startup);
         layout.Controls.Add(_updates);
@@ -293,8 +296,8 @@ internal sealed class MainForm : Form
             "Tlačítko se přidá k oknům se systémovým záhlavím. Celoobrazovkové hry a aplikace s vlastním rámem ho nemusí zobrazit.",
             "The button is added to windows that use the system title bar. Full-screen games and apps with their own frame may not show it.")));
         layout.Controls.Add(Note(Loc.T(
-            "Zástupce na ploše spustí uložený profil: jeden monitor může být vypnutý, oba mohou být zapnuté v uložené pozici.",
-            "A desktop shortcut applies a saved profile. One monitor can be off, or both can be on in the saved position.")));
+            "Zástupce na ploše spustí uložený profil. Jeho ikona ukazuje jen zapnuté obrazovky v jejich rozložení.",
+            "A desktop shortcut applies a saved profile. Its icon shows only the screens that are on, in their layout.")));
         layout.Controls.Add(Note(Loc.T("Nastavení a profily: ", "Settings and profiles: ") + AppPaths.DataDirectory));
         layout.Controls.Add(Note(InstallService.IsInstalled
             ? Loc.T("Nainstalováno ve složce ", "Installed in ") + AppPaths.InstallDirectory
@@ -304,6 +307,119 @@ internal sealed class MainForm : Form
             layout.Controls.Add(Command(Loc.T("Odinstalovat ShiftMon", "Uninstall ShiftMon"), Uninstall));
         page.Controls.Add(layout);
         return page;
+    }
+
+    Control BuildHiddenPrograms()
+    {
+        var panel = new Panel { Width = 680, Height = 214, Margin = new Padding(0, 6, 0, 8) };
+        panel.Controls.Add(new Label
+        {
+            Text = Loc.T("Tlačítko se nezobrazí u těchto programů", "Do not show the button for these programs"),
+            AutoSize = true,
+            Location = new Point(0, 0)
+        });
+        _hiddenPrograms.Location = new Point(0, 24);
+        ReloadHiddenPrograms();
+        panel.Controls.Add(_hiddenPrograms);
+        var row = new FlowLayoutPanel
+        {
+            Location = new Point(0, 160),
+            AutoSize = true,
+            WrapContents = false,
+            Margin = Padding.Empty
+        };
+        row.Controls.Add(Command(Loc.T("Přidat spuštěný program", "Add a running program"), AddRunningProgram));
+        row.Controls.Add(Command(Loc.T("Přidat soubor programu", "Add a program file"), AddProgramFile));
+        row.Controls.Add(Command(Loc.T("Odebrat", "Remove"), RemoveHiddenProgram));
+        panel.Controls.Add(row);
+        return panel;
+    }
+
+    void ReloadHiddenPrograms()
+    {
+        var selected = _hiddenPrograms.SelectedItem as HiddenProgram;
+        _hiddenPrograms.BeginUpdate();
+        _hiddenPrograms.Items.Clear();
+        foreach (var program in _settings.ButtonHiddenPrograms.OrderBy(program => program.ToString(), StringComparer.CurrentCultureIgnoreCase))
+            _hiddenPrograms.Items.Add(program);
+        _hiddenPrograms.EndUpdate();
+        if (selected != null)
+        {
+            var match = _hiddenPrograms.Items.Cast<HiddenProgram>().FirstOrDefault(program =>
+                program.Executable.Equals(selected.Executable, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                _hiddenPrograms.SelectedItem = match;
+        }
+    }
+
+    void AddRunningProgram()
+    {
+        var programs = WindowEligibility.RunningPrograms((uint)Environment.ProcessId, _settings.HiddenExecutables());
+        if (programs.Count == 0)
+        {
+            MessageBox.Show(
+                Loc.T(
+                    "Teď není otevřené žádné další okno, u kterého by šlo tlačítko skrýt.",
+                    "No other open window can be added right now."),
+                "ShiftMon",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dialog = new ProgramPickForm(programs);
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Selected == null)
+            return;
+        RememberHidden(dialog.Selected.Executable, dialog.Selected.Name);
+    }
+
+    void AddProgramFile()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = Loc.T("Vyberte program", "Choose a program"),
+            Filter = Loc.T("Programy (*.exe)|*.exe", "Programs (*.exe)|*.exe"),
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+        RememberHidden(Path.GetFileName(dialog.FileName), WindowEligibility.FriendlyName(dialog.FileName));
+    }
+
+    void RememberHidden(string executable, string name)
+    {
+        var fileName = Path.GetFileName(executable).Trim();
+        if (fileName.Length == 0)
+            return;
+        if (_settings.HidesButtonFor(fileName))
+        {
+            ReloadHiddenPrograms();
+            SelectHidden(fileName);
+            return;
+        }
+
+        _settings.ButtonHiddenPrograms.Add(new HiddenProgram { Executable = fileName, Name = name.Trim() });
+        _settings.Save();
+        ReloadHiddenPrograms();
+        SelectHidden(fileName);
+    }
+
+    void SelectHidden(string fileName)
+    {
+        var added = _hiddenPrograms.Items.Cast<HiddenProgram>().FirstOrDefault(program =>
+            program.Executable.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+        if (added != null)
+            _hiddenPrograms.SelectedItem = added;
+    }
+
+    void RemoveHiddenProgram()
+    {
+        if (_hiddenPrograms.SelectedItem is not HiddenProgram selected)
+            return;
+        _settings.ButtonHiddenPrograms.RemoveAll(program =>
+            program.Executable.Equals(selected.Executable, StringComparison.OrdinalIgnoreCase));
+        _settings.Save();
+        ReloadHiddenPrograms();
     }
 
     void CreateFromCurrent()
@@ -348,8 +464,24 @@ internal sealed class MainForm : Form
         }
         if (MessageBox.Show(this, Loc.T($"Smazat profil „{profile.Name}“?", $"Delete profile “{profile.Name}”?"), "ShiftMon", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
+        if (!string.IsNullOrWhiteSpace(profile.ShortcutPath) && File.Exists(profile.ShortcutPath))
+        {
+            try
+            {
+                ShortcutService.Create(
+                    profile.ShortcutPath,
+                    AppPaths.CurrentExecutable,
+                    "--apply-profile \"" + profile.Id + "\"",
+                    Loc.T("ShiftMon profil: ", "ShiftMon profile: ") + profile.Name);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Info("Ikona zástupce: " + ex.Message);
+            }
+        }
         _store.Profiles.Remove(profile);
         _store.Save();
+        ProfileIcon.Delete(profile.Id);
         _dirty = false;
         ReloadList(_store.Profiles.FirstOrDefault());
         _status.Text = Loc.T("Profil byl smazán.", "The profile was deleted.");
@@ -384,6 +516,14 @@ internal sealed class MainForm : Form
         }
         _store.Save();
         _dirty = false;
+        try
+        {
+            ShortcutService.UpdateProfileShortcut(profile);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Info("Ikona zástupce: " + ex.Message);
+        }
         if (announce)
             _status.Text = Loc.T($"Profil „{profile.Name}“ je uložený.", $"Profile “{profile.Name}” is saved.");
         return true;
@@ -400,7 +540,12 @@ internal sealed class MainForm : Form
             var path = ShortcutService.DesktopShortcut(profile.Name);
             if (!string.IsNullOrWhiteSpace(profile.ShortcutPath) && !string.Equals(profile.ShortcutPath, path, StringComparison.OrdinalIgnoreCase) && File.Exists(profile.ShortcutPath))
                 File.Delete(profile.ShortcutPath);
-            ShortcutService.Create(path, AppPaths.CurrentExecutable, "--apply-profile \"" + profile.Id + "\"", Loc.T("ShiftMon profil: ", "ShiftMon profile: ") + profile.Name);
+            ShortcutService.Create(
+                path,
+                AppPaths.CurrentExecutable,
+                "--apply-profile \"" + profile.Id + "\"",
+                Loc.T("ShiftMon profil: ", "ShiftMon profile: ") + profile.Name,
+                ProfileIcon.Write(profile));
             profile.ShortcutPath = path;
             _store.Save();
             _status.Text = Loc.T("Zástupce je na ploše: ", "Shortcut is on the desktop: ") + Path.GetFileName(path);

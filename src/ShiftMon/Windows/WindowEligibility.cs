@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using ShiftMon.Native;
@@ -29,7 +30,9 @@ internal static class WindowEligibility
         "ShiftMon.CaptionButton"
     };
 
-    public static bool IsEligible(IntPtr hwnd, uint ourPid)
+    public static bool IsEligible(IntPtr hwnd, uint ourPid) => IsEligible(hwnd, ourPid, null);
+
+    public static bool IsEligible(IntPtr hwnd, uint ourPid, IReadOnlySet<string>? hiddenExecutables)
     {
         if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd) || !NativeMethods.IsWindowVisible(hwnd))
             return false;
@@ -58,7 +61,96 @@ internal static class WindowEligibility
         if (!NativeMethods.GetWindowRect(hwnd, out var rect) || rect.Width < 160 || rect.Height < 40)
             return false;
 
+        if (hiddenExecutables is { Count: > 0 } && TryGetProgram(hwnd, out var fileName, out _) && hiddenExecutables.Contains(fileName))
+            return false;
+
         return true;
+    }
+
+    public static List<RunningProgram> RunningPrograms(uint ourPid, IReadOnlySet<string>? skip)
+    {
+        var found = new Dictionary<string, RunningProgram>(StringComparer.OrdinalIgnoreCase);
+        NativeMethods.EnumWindows((hwnd, _) =>
+        {
+            if (!IsEligible(hwnd, ourPid))
+                return true;
+            if (!TryGetProgram(hwnd, out var fileName, out var fullPath))
+                return true;
+            if (skip != null && skip.Contains(fileName))
+                return true;
+            if (found.ContainsKey(fileName))
+                return true;
+            found[fileName] = new RunningProgram(fileName, FriendlyName(fullPath), Title(hwnd));
+            return true;
+        }, IntPtr.Zero);
+        return found.Values.OrderBy(program => program.ToString(), StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    public static bool TryGetProgram(IntPtr hwnd, out string fileName, out string fullPath)
+    {
+        fileName = "";
+        fullPath = "";
+        if (!TryQueryProcess(hwnd, out fileName, out fullPath))
+            return false;
+        if (!fileName.Equals("ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var child = NativeMethods.GetWindow(hwnd, NativeMethods.GwChild);
+        if (child != IntPtr.Zero
+            && TryQueryProcess(child, out var childName, out var childPath)
+            && !childName.Equals("ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            fileName = childName;
+            fullPath = childPath;
+        }
+        return true;
+    }
+
+    public static string FriendlyName(string fullPath)
+    {
+        try
+        {
+            var info = FileVersionInfo.GetVersionInfo(fullPath);
+            foreach (var candidate in new[] { info.FileDescription, info.ProductName })
+            {
+                if (!string.IsNullOrWhiteSpace(candidate)
+                    && !candidate.Equals(Path.GetFileName(fullPath), StringComparison.OrdinalIgnoreCase))
+                    return candidate.Trim();
+            }
+        }
+        catch
+        {
+            // Popis souboru je jen popisek v seznamu.
+        }
+
+        var bare = Path.GetFileNameWithoutExtension(fullPath);
+        return string.IsNullOrWhiteSpace(bare) ? Path.GetFileName(fullPath) : bare;
+    }
+
+    static bool TryQueryProcess(IntPtr hwnd, out string fileName, out string fullPath)
+    {
+        fileName = "";
+        fullPath = "";
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+        if (pid == 0)
+            return false;
+        var process = NativeMethods.OpenProcess(NativeMethods.ProcessQueryLimitedInformation, false, pid);
+        if (process == IntPtr.Zero)
+            return false;
+        try
+        {
+            var buffer = new StringBuilder(1024);
+            var size = buffer.Capacity;
+            if (!NativeMethods.QueryFullProcessImageName(process, 0, buffer, ref size) || size <= 0)
+                return false;
+            fullPath = buffer.ToString(0, size);
+            fileName = Path.GetFileName(fullPath);
+            return fileName.Length > 0;
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(process);
+        }
     }
 
     public static bool TryGetButtonRect(IntPtr hwnd, out NativeMethods.RECT rect)
@@ -189,5 +281,15 @@ internal static class WindowEligibility
         if (button.Top < window.Top - 30 || button.Top > window.Top + 90)
             return false;
         return true;
+    }
+}
+
+internal sealed record RunningProgram(string Executable, string Name, string SampleTitle)
+{
+    public override string ToString()
+    {
+        if (string.IsNullOrWhiteSpace(Name) || Name.Equals(Executable, StringComparison.OrdinalIgnoreCase))
+            return Executable;
+        return Name + " (" + Executable + ")";
     }
 }

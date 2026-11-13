@@ -92,6 +92,17 @@ internal static class Program
         var store = new ProfileStore();
         store.Load();
         store.EnsureReady();
+        foreach (var profile in store.Profiles)
+        {
+            try
+            {
+                ShortcutService.UpdateProfileShortcut(profile);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Info("Ikona zástupce: " + ex.Message);
+            }
+        }
         OfferPendingRevert(store);
         if (SynchronizationContext.Current == null)
             SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
