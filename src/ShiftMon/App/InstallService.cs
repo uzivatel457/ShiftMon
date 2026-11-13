@@ -97,9 +97,26 @@ internal static class InstallService
         var sourceDir = Path.GetDirectoryName(source)!;
         if (!string.Equals(Path.GetFullPath(sourceDir), Path.GetFullPath(AppPaths.InstallDirectory), StringComparison.OrdinalIgnoreCase))
         {
-            CopyDirectory(sourceDir, AppPaths.InstallDirectory);
-            if (!string.Equals(Path.GetFileName(source), "ShiftMon.exe", StringComparison.OrdinalIgnoreCase))
-                File.Copy(source, target, overwrite: true);
+            File.Copy(source, target, overwrite: true);
+            var keepRuntime = string.Equals(Path.GetFileName(source), "ShiftMon.exe", StringComparison.OrdinalIgnoreCase)
+                              && File.Exists(Path.Combine(sourceDir, "ShiftMon.dll"));
+            if (keepRuntime)
+            {
+                foreach (var file in Directory.GetFiles(sourceDir))
+                {
+                    var name = Path.GetFileName(file);
+                    if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                        || name.EndsWith(".deps.json", StringComparison.OrdinalIgnoreCase)
+                        || name.EndsWith(".runtimeconfig.json", StringComparison.OrdinalIgnoreCase))
+                        File.Copy(file, Path.Combine(AppPaths.InstallDirectory, name), overwrite: true);
+                }
+
+                var runtimes = Path.Combine(sourceDir, "runtimes");
+                if (Directory.Exists(runtimes))
+                    CopyDirectory(runtimes, Path.Combine(AppPaths.InstallDirectory, "runtimes"));
+            }
+
+            RemoveUnrelatedFiles(keepRuntime);
         }
 
         EnsureRegistered();
@@ -117,6 +134,38 @@ internal static class InstallService
             return;
         CreateStartMenuShortcut(target);
         WriteUninstallKey(target);
+    }
+
+    static void RemoveUnrelatedFiles(bool keepRuntime)
+    {
+        foreach (var file in Directory.GetFiles(AppPaths.InstallDirectory))
+        {
+            var name = Path.GetFileName(file);
+            var keep = name.Equals("ShiftMon.exe", StringComparison.OrdinalIgnoreCase)
+                       || (keepRuntime && (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                                           || name.EndsWith(".deps.json", StringComparison.OrdinalIgnoreCase)
+                                           || name.EndsWith(".runtimeconfig.json", StringComparison.OrdinalIgnoreCase)));
+            if (!keep)
+                TryDelete(file);
+        }
+
+        foreach (var directory in Directory.GetDirectories(AppPaths.InstallDirectory))
+        {
+            if (!Path.GetFileName(directory).Equals("runtimes", StringComparison.OrdinalIgnoreCase))
+                TryDeleteDirectory(directory);
+        }
+    }
+
+    static void TryDelete(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception ex) { AppLog.Info("Soubor zůstal: " + ex.Message); }
+    }
+
+    static void TryDeleteDirectory(string path)
+    {
+        try { Directory.Delete(path, recursive: true); }
+        catch (Exception ex) { AppLog.Info("Složka zůstala: " + ex.Message); }
     }
 
     static int OtherCount()

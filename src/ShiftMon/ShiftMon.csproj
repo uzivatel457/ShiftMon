@@ -12,6 +12,7 @@
     <RootNamespace>ShiftMon</RootNamespace>
     <AssemblyName>ShiftMon</AssemblyName>
     <Version>1.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>ShiftMon</Product>
     <Company>ShiftMon</Company>
     <Description>Tlačítko v záhlaví okna a profily monitorů pro Windows.</Description>
