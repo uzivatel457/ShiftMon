@@ -13,29 +13,42 @@ internal sealed class MainForm : Form
     readonly Action _identify;
     readonly Action<bool> _buttonsChanged;
     readonly Action _languageChanged;
+    readonly Action _workplaceChanged;
 
     readonly ListBox _profiles = new() { IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle };
+    FlowLayoutPanel? _profileButtons;
     readonly MonitorCanvas _canvas = new() { Dock = DockStyle.Top, Height = 210 };
     readonly Label _monitorTitle = new() { AutoSize = false, Height = 28, AutoEllipsis = true, Font = new Font("Segoe UI", 11f, FontStyle.Bold) };
-    readonly Label _status = new() { AutoSize = false, Height = 52, Dock = DockStyle.Bottom, ForeColor = Color.FromArgb(70, 76, 86), Padding = new Padding(8, 6, 8, 0) };
-    readonly CheckBox _enabled = new() { AutoSize = true };
-    readonly CheckBox _primary = new() { AutoSize = true };
+    readonly Label _status = new() { AutoSize = false, Height = 52, Dock = DockStyle.Bottom, ForeColor = Theme.Muted, Padding = new Padding(8, 6, 8, 0) };
+    readonly ThemedCheckBox _enabled = new();
+    readonly ThemedCheckBox _primary = new();
     readonly ComboBox _resolution = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
     readonly ComboBox _refresh = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
     readonly ComboBox _orientation = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
-    readonly NumericUpDown _posX = new() { Minimum = -20000, Maximum = 20000, Width = 90 };
-    readonly NumericUpDown _posY = new() { Minimum = -20000, Maximum = 20000, Width = 90 };
-    readonly CheckBox _caption = new() { AutoSize = true };
-    readonly ListBox _hiddenPrograms = new() { IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle, Width = 640, Height = 130 };
-    readonly CheckBox _picker = new() { AutoSize = true };
-    readonly CheckBox _startup = new() { AutoSize = true };
-    readonly CheckBox _updates = new() { AutoSize = true };
+    readonly ThemedNumber _posX = new() { Minimum = -20000, Maximum = 20000, Width = 108 };
+    readonly ThemedNumber _posY = new() { Minimum = -20000, Maximum = 20000, Width = 108 };
+    readonly ThemedCheckBox _caption = new();
+    readonly CheckedListBox _hiddenPrograms = new()
+    {
+        IntegralHeight = false,
+        BorderStyle = BorderStyle.FixedSingle,
+        CheckOnClick = true,
+        Width = 640,
+        Height = 150
+    };
+    bool _loadingHidden;
+    readonly ThemedCheckBox _picker = new();
+    readonly ThemedCheckBox _startup = new();
+    readonly ThemedCheckBox _workplace = new();
+    readonly ThemedCheckBox _updates = new();
     readonly ComboBox _language = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
+    readonly ComboBox _theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
+    TabControl? _tabs;
     bool _loading;
     bool _dirty;
     bool _allowClose;
 
-    public MainForm(ProfileStore store, AppSettings settings, Action<DisplayProfile> apply, Action identify, Action<bool> buttonsChanged, Action languageChanged)
+    public MainForm(ProfileStore store, AppSettings settings, Action<DisplayProfile> apply, Action identify, Action<bool> buttonsChanged, Action languageChanged, Action workplaceChanged)
     {
         _store = store;
         _settings = settings;
@@ -43,10 +56,12 @@ internal sealed class MainForm : Form
         _identify = identify;
         _buttonsChanged = buttonsChanged;
         _languageChanged = languageChanged;
+        _workplaceChanged = workplaceChanged;
 
-        Text = "ShiftMon";
+        Text = "ShiftMon " + AppPaths.Version;
         Font = new Font("Segoe UI", 9.5f);
-        BackColor = Color.FromArgb(244, 246, 248);
+        BackColor = Theme.Window;
+        ForeColor = Theme.Text;
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1120, 740);
         MinimumSize = new Size(1000, 680);
@@ -64,6 +79,7 @@ internal sealed class MainForm : Form
         _caption.Text = Loc.T("Zobrazovat tlačítko v záhlaví oken", "Show a button in window title bars");
         _picker.Text = Loc.T("Při třech a více monitorech otevřít výběr obrazovky", "With three or more monitors, open a screen picker");
         _startup.Text = Loc.T("Spouštět ShiftMon po přihlášení do Windows", "Start ShiftMon when you sign in to Windows");
+        _workplace.Text = Loc.T("Rozpoznávat pracoviště podle připojených monitorů", "Recognize the workplace from the connected monitors");
         _updates.Text = Loc.T("Hledat nové verze na GitHubu", "Check GitHub for new versions");
         _monitorTitle.Text = Loc.T("Vyberte monitor", "Select a monitor");
 
@@ -72,17 +88,37 @@ internal sealed class MainForm : Form
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 1,
-            BackColor = Color.White,
+            BackColor = Theme.Surface,
             Padding = new Padding(16, 10, 16, 12)
         };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.Controls.Add(new Label
+        var title = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(0, 0, 0, 2),
+            BackColor = Theme.Surface,
+            Padding = new Padding(0)
+        };
+        title.Controls.Add(new Label
         {
             Text = "ShiftMon",
             Font = new Font("Segoe UI", 16f, FontStyle.Bold),
             AutoSize = true,
-            Margin = new Padding(0, 0, 0, 2)
+            Margin = new Padding(0, 0, 10, 0),
+            BackColor = Theme.Surface
         });
+        title.Controls.Add(new Label
+        {
+            Text = AppPaths.Version,
+            Font = new Font("Segoe UI", 11f),
+            AutoSize = true,
+            Margin = new Padding(0, 8, 0, 0),
+            ForeColor = Theme.Muted,
+            BackColor = Theme.Surface
+        });
+        header.Controls.Add(title);
         header.Controls.Add(new Label
         {
             Text = Loc.T(
@@ -91,13 +127,16 @@ internal sealed class MainForm : Form
             AutoSize = true,
             MaximumSize = new Size(1040, 0),
             Margin = new Padding(0),
-            ForeColor = Color.FromArgb(80, 88, 98)
+            ForeColor = Theme.Subtitle
         });
 
-        var tabs = new TabControl { Dock = DockStyle.Fill };
+        var tabs = new ThemedTabControl { Dock = DockStyle.Fill, BackColor = Theme.Window };
+        _tabs = tabs;
         tabs.TabPages.Add(BuildProfilesTab());
         tabs.TabPages.Add(BuildOptionsTab());
         Controls.Add(tabs);
+        Theme.StyleTree(this);
+        Theme.Attach(this);
         Controls.Add(header);
 
         _profiles.SelectedIndexChanged += (_, _) => SelectProfile(_profiles.SelectedItem as DisplayProfile, confirmDirty: true);
@@ -143,6 +182,43 @@ internal sealed class MainForm : Form
             _profiles.SelectedItem = profile;
     }
 
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        var height = _resolution.Height;
+        _posX.MatchHeight(height);
+        _posY.MatchHeight(height);
+        FitProfileButtons();
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        FitProfileButtons();
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        BeginInvoke(FitProfileButtons);
+    }
+
+    bool _fittingButtons;
+
+    void FitProfileButtons()
+    {
+        if (_fittingButtons || _profileButtons == null || _profileButtons.Controls.Count == 0)
+            return;
+        var bottom = _profileButtons.Padding.Vertical;
+        foreach (Control button in _profileButtons.Controls)
+            bottom += button.Height + button.Margin.Vertical;
+        if (bottom <= 0 || _profileButtons.Height == bottom)
+            return;
+        _fittingButtons = true;
+        _profileButtons.Height = bottom;
+        _fittingButtons = false;
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         if (!_allowClose && e.CloseReason == CloseReason.UserClosing)
@@ -159,18 +235,27 @@ internal sealed class MainForm : Form
 
     TabPage BuildProfilesTab()
     {
-        var page = new TabPage(Loc.T("Profily", "Profiles")) { Padding = new Padding(10), BackColor = Color.FromArgb(244, 246, 248) };
+        var page = new TabPage(Loc.T("Profily", "Profiles")) { Padding = new Padding(10), BackColor = Theme.Window };
         var left = new Panel { Dock = DockStyle.Left, Width = 320, Padding = new Padding(0, 0, 12, 0) };
         _profiles.Dock = DockStyle.Fill;
         _profiles.DisplayMember = nameof(DisplayProfile.Name);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 132, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            Padding = new Padding(0, 0, 0, 2)
+        };
         buttons.Controls.Add(Accent(Loc.T("Nový z aktuálního rozložení", "New from current layout"), CreateFromCurrent));
         buttons.Controls.Add(Command(Loc.T("Přejmenovat", "Rename"), RenameSelected));
         buttons.Controls.Add(Command(Loc.T("Smazat", "Delete"), DeleteSelected));
+        foreach (Control button in buttons.Controls)
+            button.SizeChanged += (_, _) => FitProfileButtons();
+        _profileButtons = buttons;
         left.Controls.Add(_profiles);
         left.Controls.Add(buttons);
 
-        var right = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(12) };
+        var right = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Surface, Padding = new Padding(12) };
         var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, FlowDirection = FlowDirection.LeftToRight, WrapContents = true };
         actions.Controls.Add(Accent(Loc.T("Použít", "Apply"), ApplySelected));
         actions.Controls.Add(Command(Loc.T("Uložit", "Save"), () => SaveSelected(announce: true)));
@@ -197,7 +282,7 @@ internal sealed class MainForm : Form
         AddRow(fields, 4, Loc.T("Orientace", "Orientation"), _orientation);
         var position = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         position.Controls.Add(_posX);
-        position.Controls.Add(new Label { Text = "Y", AutoSize = true, Padding = new Padding(8, 6, 4, 0) });
+        position.Controls.Add(new Label { Text = "Y", AutoSize = true, Margin = new Padding(8, 4, 6, 0) });
         position.Controls.Add(_posY);
         AddRow(fields, 5, Loc.T("Pozice X", "Position X"), position);
 
@@ -216,7 +301,7 @@ internal sealed class MainForm : Form
             AutoSize = false,
             Height = 44,
             Dock = DockStyle.Bottom,
-            ForeColor = Color.FromArgb(90, 98, 110)
+            ForeColor = Theme.Hint
         };
         right.Controls.Add(fields);
         right.Controls.Add(hint);
@@ -230,10 +315,11 @@ internal sealed class MainForm : Form
 
     TabPage BuildOptionsTab()
     {
-        var page = new TabPage(Loc.T("Možnosti", "Options")) { Padding = new Padding(16), BackColor = Color.White };
+        var page = new TabPage(Loc.T("Možnosti", "Options")) { Padding = new Padding(16), BackColor = Theme.Surface };
         _caption.Checked = _settings.CaptionButton;
         _picker.Checked = _settings.PickerWhenMany;
         _startup.Checked = _settings.RunAtStartup;
+        _workplace.Checked = _settings.RecognizeWorkplace;
         _updates.Checked = _settings.CheckUpdates;
         _language.Items.Add(Loc.T("Automaticky dle systému", "Match Windows language"));
         _language.Items.Add("Česky");
@@ -245,6 +331,16 @@ internal sealed class MainForm : Form
             _ => 0
         };
         _language.SelectedIndexChanged += (_, _) => LanguagePicked();
+        _theme.Items.Add(Loc.T("Automaticky dle Windows", "Match Windows"));
+        _theme.Items.Add(Loc.T("Světlý", "Light"));
+        _theme.Items.Add(Loc.T("Tmavý", "Dark"));
+        _theme.SelectedIndex = _settings.Theme switch
+        {
+            "light" => 1,
+            "dark" => 2,
+            _ => 0
+        };
+        _theme.SelectedIndexChanged += (_, _) => ThemePicked();
         _caption.CheckedChanged += (_, _) =>
         {
             _settings.CaptionButton = _caption.Checked;
@@ -262,6 +358,13 @@ internal sealed class MainForm : Form
             _settings.Save();
             StartupRegistration.Apply(_startup.Checked, AppPaths.CurrentExecutable);
         };
+        _workplace.CheckedChanged += (_, _) =>
+        {
+            _settings.RecognizeWorkplace = _workplace.Checked;
+            _settings.Save();
+            if (_workplace.Checked)
+                _workplaceChanged();
+        };
         _updates.CheckedChanged += (_, _) =>
         {
             _settings.CheckUpdates = _updates.Checked;
@@ -278,10 +381,23 @@ internal sealed class MainForm : Form
         });
         languageRow.Controls.Add(_language);
         layout.Controls.Add(languageRow);
+        var themeRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 10) };
+        themeRow.Controls.Add(new Label
+        {
+            Text = Loc.T("Vzhled", "Appearance"),
+            AutoSize = true,
+            Padding = new Padding(0, 6, 12, 0)
+        });
+        themeRow.Controls.Add(_theme);
+        layout.Controls.Add(themeRow);
         layout.Controls.Add(_caption);
         layout.Controls.Add(BuildHiddenPrograms());
         layout.Controls.Add(_picker);
         layout.Controls.Add(_startup);
+        layout.Controls.Add(_workplace);
+        layout.Controls.Add(Note(Loc.T(
+            "Když se připojené monitory shodují s jedním uloženým profilem, ShiftMon ho nabídne. V práci tedy profil s tamními obrazovkami, doma profil s domácí obrazovkou. Dva profily se stejnými monitory se samy nepřepnou.",
+            "When the connected monitors match one saved profile, ShiftMon offers it. At work that is the profile with the work screens, at home the profile with the home screen. Two profiles that use the same monitors are not switched automatically.")));
         layout.Controls.Add(_updates);
         layout.Controls.Add(Command(Loc.T("Zkontrolovat aktualizace", "Check for updates"), () => _ = UpdateService.CheckNowAsync()));
         layout.Controls.Add(Command(Loc.T("Seznam změn", "Change list"), () =>
@@ -311,7 +427,7 @@ internal sealed class MainForm : Form
 
     Control BuildHiddenPrograms()
     {
-        var panel = new Panel { Width = 680, Height = 214, Margin = new Padding(0, 6, 0, 8) };
+        var panel = new Panel { Width = 680, Height = 230, Margin = new Padding(0, 6, 0, 8) };
         panel.Controls.Add(new Label
         {
             Text = Loc.T("Tlačítko se nezobrazí u těchto programů", "Do not show the button for these programs"),
@@ -319,58 +435,69 @@ internal sealed class MainForm : Form
             Location = new Point(0, 0)
         });
         _hiddenPrograms.Location = new Point(0, 24);
+        _hiddenPrograms.ItemCheck += HiddenProgramChecked;
         ReloadHiddenPrograms();
         panel.Controls.Add(_hiddenPrograms);
         var row = new FlowLayoutPanel
         {
-            Location = new Point(0, 160),
+            Location = new Point(0, 180),
             AutoSize = true,
             WrapContents = false,
             Margin = Padding.Empty
         };
-        row.Controls.Add(Command(Loc.T("Přidat spuštěný program", "Add a running program"), AddRunningProgram));
-        row.Controls.Add(Command(Loc.T("Přidat soubor programu", "Add a program file"), AddProgramFile));
-        row.Controls.Add(Command(Loc.T("Odebrat", "Remove"), RemoveHiddenProgram));
+        row.Controls.Add(Command(Loc.T("Přidat program", "Add a program"), AddProgramFile));
         panel.Controls.Add(row);
         return panel;
     }
 
     void ReloadHiddenPrograms()
     {
-        var selected = _hiddenPrograms.SelectedItem as HiddenProgram;
+        var selected = (_hiddenPrograms.SelectedItem as HiddenProgram)?.Executable;
+        _loadingHidden = true;
         _hiddenPrograms.BeginUpdate();
         _hiddenPrograms.Items.Clear();
+        var listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var program in _settings.ButtonHiddenPrograms.OrderBy(program => program.ToString(), StringComparer.CurrentCultureIgnoreCase))
-            _hiddenPrograms.Items.Add(program);
-        _hiddenPrograms.EndUpdate();
-        if (selected != null)
         {
-            var match = _hiddenPrograms.Items.Cast<HiddenProgram>().FirstOrDefault(program =>
-                program.Executable.Equals(selected.Executable, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-                _hiddenPrograms.SelectedItem = match;
+            if (!listed.Add(program.Executable))
+                continue;
+            _hiddenPrograms.Items.Add(program, true);
         }
+
+        foreach (var running in WindowEligibility.RunningPrograms((uint)Environment.ProcessId, null))
+        {
+            if (!listed.Add(running.Executable))
+                continue;
+            _hiddenPrograms.Items.Add(new HiddenProgram { Executable = running.Executable, Name = running.Name }, false);
+        }
+
+        _hiddenPrograms.EndUpdate();
+        _loadingHidden = false;
+        if (!string.IsNullOrEmpty(selected))
+            SelectHidden(selected);
     }
 
-    void AddRunningProgram()
+    void HiddenProgramChecked(object? sender, ItemCheckEventArgs e)
     {
-        var programs = WindowEligibility.RunningPrograms((uint)Environment.ProcessId, _settings.HiddenExecutables());
-        if (programs.Count == 0)
-        {
-            MessageBox.Show(
-                Loc.T(
-                    "Teď není otevřené žádné další okno, u kterého by šlo tlačítko skrýt.",
-                    "No other open window can be added right now."),
-                "ShiftMon",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+        if (_loadingHidden || _hiddenPrograms.Items[e.Index] is not HiddenProgram program)
             return;
-        }
+        var hide = e.NewValue == CheckState.Checked;
+        BeginInvoke(() => SetButtonHidden(program, hide));
+    }
 
-        using var dialog = new ProgramPickForm(programs);
-        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Selected == null)
+    void SetButtonHidden(HiddenProgram program, bool hide)
+    {
+        var fileName = Path.GetFileName(program.Executable).Trim();
+        if (fileName.Length == 0)
             return;
-        RememberHidden(dialog.Selected.Executable, dialog.Selected.Name);
+        var exists = _settings.HidesButtonFor(fileName);
+        if (hide && !exists)
+            _settings.ButtonHiddenPrograms.Add(new HiddenProgram { Executable = fileName, Name = program.Name });
+        else if (!hide && exists)
+            _settings.ButtonHiddenPrograms.RemoveAll(item => item.Executable.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+        else
+            return;
+        _settings.Save();
     }
 
     void AddProgramFile()
@@ -378,7 +505,8 @@ internal sealed class MainForm : Form
         using var dialog = new OpenFileDialog
         {
             Title = Loc.T("Vyberte program", "Choose a program"),
-            Filter = Loc.T("Programy (*.exe)|*.exe", "Programs (*.exe)|*.exe"),
+            Filter = Loc.T("Programy (*.exe)|*.exe|Všechny soubory (*.*)|*.*", "Programs (*.exe)|*.exe|All files (*.*)|*.*"),
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             CheckFileExists = true
         };
         if (dialog.ShowDialog(this) != DialogResult.OK)
@@ -410,16 +538,6 @@ internal sealed class MainForm : Form
             program.Executable.Equals(fileName, StringComparison.OrdinalIgnoreCase));
         if (added != null)
             _hiddenPrograms.SelectedItem = added;
-    }
-
-    void RemoveHiddenProgram()
-    {
-        if (_hiddenPrograms.SelectedItem is not HiddenProgram selected)
-            return;
-        _settings.ButtonHiddenPrograms.RemoveAll(program =>
-            program.Executable.Equals(selected.Executable, StringComparison.OrdinalIgnoreCase));
-        _settings.Save();
-        ReloadHiddenPrograms();
     }
 
     void CreateFromCurrent()
@@ -613,8 +731,8 @@ internal sealed class MainForm : Form
         _resolution.Enabled = has && monitor!.Enabled;
         _refresh.Enabled = has && monitor!.Enabled;
         _orientation.Enabled = has && monitor!.Enabled;
-        _posX.Enabled = has && monitor!.Enabled && !monitor.Primary;
-        _posY.Enabled = has && monitor!.Enabled && !monitor.Primary;
+        _posX.Editable = has && monitor!.Enabled && !monitor.Primary;
+        _posY.Editable = has && monitor!.Enabled && !monitor.Primary;
         if (monitor == null)
         {
             _monitorTitle.Text = Loc.T("Vyberte monitor", "Select a monitor");
@@ -834,6 +952,35 @@ internal sealed class MainForm : Form
         BeginInvoke(_languageChanged);
     }
 
+    void ThemePicked()
+    {
+        if (_loading)
+            return;
+        var choice = _theme.SelectedIndex switch
+        {
+            1 => "light",
+            2 => "dark",
+            _ => "auto"
+        };
+        if (string.Equals(choice, _settings.Theme, StringComparison.OrdinalIgnoreCase))
+            return;
+        _settings.Theme = choice;
+        _settings.Save();
+        if (_dirty)
+            SaveSelected(announce: false);
+        Theme.Use(choice);
+        BeginInvoke(_languageChanged);
+    }
+
+    public int SelectedTabIndex => _tabs?.SelectedIndex ?? 0;
+
+    public void SelectTab(int index)
+    {
+        if (_tabs == null || index < 0 || index >= _tabs.TabCount)
+            return;
+        _tabs.SelectedIndex = index;
+    }
+
     MonitorProfileEntry? Current => _canvas.Selected;
 
     string NextName()
@@ -859,8 +1006,11 @@ internal sealed class MainForm : Form
             ClientSize = new Size(380, 130),
             MinimizeBox = false,
             MaximizeBox = false,
-            Font = Font
+            Font = Font,
+            BackColor = Theme.Surface,
+            ForeColor = Theme.Text
         };
+        Theme.Attach(form);
         var text = new TextBox { Text = initial, Bounds = new Rectangle(16, 40, 348, 24) };
         form.Controls.Add(new Label { Text = label, AutoSize = true, Location = new Point(16, 16) });
         form.Controls.Add(text);
@@ -870,15 +1020,16 @@ internal sealed class MainForm : Form
         form.Controls.Add(cancel);
         form.AcceptButton = ok;
         form.CancelButton = cancel;
+        Theme.StyleTree(form);
         return form.ShowDialog(this) == DialogResult.OK ? text.Text : null;
     }
 
     static void AddRow(TableLayoutPanel table, int row, string label, Control control)
     {
-        table.RowStyles.Add(new RowStyle(SizeType.Absolute, row == 6 ? 48 : 36));
+        table.RowStyles.Add(new RowStyle(SizeType.Absolute, row == 5 ? 40 : 36));
         if (label.Length > 0)
             table.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 6, 0, 0) }, 0, row);
-        control.Anchor = AnchorStyles.Left;
+        control.Anchor = AnchorStyles.Left | AnchorStyles.Top;
         table.Controls.Add(control, label.Length > 0 ? 1 : 0, row);
         if (label.Length == 0)
             table.SetColumnSpan(control, 2);
@@ -903,8 +1054,8 @@ internal sealed class MainForm : Form
     static Button Accent(string text, Action click)
     {
         var button = Command(text, click);
-        button.BackColor = Color.FromArgb(31, 111, 184);
-        button.ForeColor = Color.White;
+        button.BackColor = Theme.Accent;
+        button.ForeColor = Theme.AccentText;
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
         return button;
@@ -916,7 +1067,7 @@ internal sealed class MainForm : Form
         AutoSize = true,
         MaximumSize = new Size(760, 0),
         Margin = new Padding(0, 8, 0, 0),
-        ForeColor = Color.FromArgb(60, 68, 78)
+        ForeColor = Theme.Note
     };
 
     static int ParseWidth(string label) => int.TryParse(label.Split('×')[0].Trim(), out var value) ? value : 0;

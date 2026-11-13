@@ -13,7 +13,8 @@ internal sealed class UpdatePromptForm : Form
         TopMost = true;
         Font = new Font("Segoe UI", 10f);
         ClientSize = new Size(520, 360);
-        BackColor = Color.White;
+        BackColor = App.Theme.Surface;
+        ForeColor = App.Theme.Text;
 
         var title = new Label
         {
@@ -32,7 +33,8 @@ internal sealed class UpdatePromptForm : Form
             BorderStyle = BorderStyle.FixedSingle,
             Bounds = new Rectangle(20, 72, 480, 220),
             Text = notes,
-            BackColor = Color.White
+            BackColor = App.Theme.Input,
+            ForeColor = App.Theme.Text
         };
         var accept = new Button
         {
@@ -41,8 +43,8 @@ internal sealed class UpdatePromptForm : Form
             AutoSize = true,
             MinimumSize = new Size(120, 34),
             Padding = new Padding(12, 4, 12, 4),
-            BackColor = Color.FromArgb(31, 111, 184),
-            ForeColor = Color.White,
+            BackColor = App.Theme.Accent,
+            ForeColor = App.Theme.AccentText,
             FlatStyle = FlatStyle.Flat
         };
         accept.FlatAppearance.BorderSize = 0;
@@ -71,5 +73,7 @@ internal sealed class UpdatePromptForm : Form
         Controls.Add(actions);
         AcceptButton = accept;
         CancelButton = later;
+        App.Theme.StyleTree(this);
+        App.Theme.Attach(this);
     }
 }

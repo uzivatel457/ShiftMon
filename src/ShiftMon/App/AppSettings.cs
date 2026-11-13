@@ -11,7 +11,9 @@ internal sealed class AppSettings
     public bool SeenTrayHint { get; set; }
     public bool SeenWelcome { get; set; }
     public string Language { get; set; } = "auto";
+    public string Theme { get; set; } = "auto";
     public bool CheckUpdates { get; set; } = true;
+    public bool RecognizeWorkplace { get; set; } = true;
     public string LastUpdateCheck { get; set; } = "";
     public string SeenRelease { get; set; } = "";
     public List<HiddenProgram> ButtonHiddenPrograms

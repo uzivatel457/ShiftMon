@@ -1,3 +1,4 @@
+using ShiftMon.App;
 using ShiftMon.Native;
 using ShiftMon.Profiles;
 
@@ -18,7 +19,7 @@ internal sealed class MonitorPickerForm : Form
         StartPosition = FormStartPosition.Manual;
         ShowInTaskbar = false;
         TopMost = true;
-        BackColor = Color.FromArgb(48, 48, 48);
+        BackColor = App.Theme.Dark ? Color.FromArgb(32, 32, 32) : Color.FromArgb(248, 248, 248);
         KeyPreview = true;
         var size = MeasureBox();
         ClientSize = size;
@@ -59,14 +60,16 @@ internal sealed class MonitorPickerForm : Form
         base.OnPaint(e);
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         e.Graphics.Clear(BackColor);
-        using var text = new SolidBrush(Color.White);
         var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
         foreach (var item in LayoutRects(ClientRectangle))
         {
             var selected = string.Equals(item.Monitor.DeviceName, _current.DeviceName, StringComparison.OrdinalIgnoreCase);
             var hot = ReferenceEquals(item.Monitor, _hover);
-            using var fill = new SolidBrush(selected ? Color.FromArgb(20, 20, 20) : Color.Black);
-            using var pen = new Pen(hot || selected ? Color.FromArgb(70, 150, 230) : Color.FromArgb(90, 90, 90), selected ? 3f : 1.5f);
+            using var fill = new SolidBrush(selected
+                ? Theme.Accent
+                : Theme.Dark ? Color.FromArgb(58, 58, 58) : Color.White);
+            using var pen = new Pen(hot || selected ? Color.FromArgb(70, 150, 230) : Theme.Line, selected ? 3f : 1.5f);
+            using var text = new SolidBrush(selected || Theme.Dark ? Color.White : Color.FromArgb(28, 28, 28));
             e.Graphics.FillRectangle(fill, item.Rect);
             e.Graphics.DrawRectangle(pen, item.Rect);
             e.Graphics.DrawString(item.Monitor.Number.ToString(), Font, text, item.Rect, format);

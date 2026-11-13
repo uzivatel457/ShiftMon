@@ -12,6 +12,8 @@ internal sealed class MonitorCanvas : UserControl
     int _originX;
     int _originY;
     bool _moved;
+    int? _guideX;
+    int? _guideY;
     bool _viewFrozen;
     float _viewScale = 1;
     int _viewMinX;
@@ -86,6 +88,8 @@ internal sealed class MonitorCanvas : UserControl
                 x += 116;
             }
         }
+
+        DrawGuides(g, laid);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -123,10 +127,18 @@ internal sealed class MonitorCanvas : UserControl
             return;
         var dx = (int)Math.Round((e.X - _dragStart.X) / _viewScale);
         var dy = (int)Math.Round((e.Y - _dragStart.Y) / _viewScale);
-        _drag.X = _originX + dx;
-        _drag.Y = _originY + dy;
-        if (dx != 0 || dy != 0)
+        if (dx == 0 && dy == 0)
+        {
+            _drag.X = _originX;
+            _drag.Y = _originY;
+            _guideX = null;
+            _guideY = null;
+        }
+        else
+        {
             _moved = true;
+            Align(_drag, _originX + dx, _originY + dy);
+        }
         Cursor = Cursors.SizeAll;
         Invalidate();
         Update();
@@ -138,9 +150,13 @@ internal sealed class MonitorCanvas : UserControl
     {
         if (_drag != null && _moved)
         {
-            Snap(_drag);
+            Align(_drag, _drag.X, _drag.Y);
+            var others = _enabled.Where(monitor => !ReferenceEquals(monitor, _drag)).ToList();
+            ProfileLayout.MoveBeside(_drag, others);
             LayoutEdited?.Invoke(this, EventArgs.Empty);
         }
+        _guideX = null;
+        _guideY = null;
         _drag = null;
         _viewFrozen = false;
         Capture = false;
@@ -197,41 +213,92 @@ internal sealed class MonitorCanvas : UserControl
         return null;
     }
 
-    void Snap(MonitorProfileEntry item)
+    void Align(MonitorProfileEntry item, int freeX, int freeY)
     {
-        var others = _enabled.Where(m => !ReferenceEquals(m, item)).ToList();
-        var xs = new List<int>();
-        var ys = new List<int>();
-        foreach (var other in others)
+        var xs = new List<AlignTarget>();
+        var ys = new List<AlignTarget>();
+        foreach (var other in _enabled)
         {
-            xs.Add(other.X);
-            xs.Add(other.X + other.Width);
-            xs.Add(other.X - item.Width);
-            xs.Add(other.X + other.Width - item.Width);
-            ys.Add(other.Y);
-            ys.Add(other.Y + other.Height);
-            ys.Add(other.Y - item.Height);
-            ys.Add(other.Y + other.Height - item.Height);
+            if (ReferenceEquals(other, item))
+                continue;
+            var right = other.X + other.Width;
+            var bottom = other.Y + other.Height;
+            xs.Add(new AlignTarget(other.X, other.X));
+            xs.Add(new AlignTarget(right - item.Width, right));
+            xs.Add(new AlignTarget(other.X + (other.Width - item.Width) / 2, other.X + other.Width / 2));
+            xs.Add(new AlignTarget(right, right));
+            xs.Add(new AlignTarget(other.X - item.Width, other.X));
+            ys.Add(new AlignTarget(other.Y, other.Y));
+            ys.Add(new AlignTarget(bottom - item.Height, bottom));
+            ys.Add(new AlignTarget(other.Y + (other.Height - item.Height) / 2, other.Y + other.Height / 2));
+            ys.Add(new AlignTarget(bottom, bottom));
+            ys.Add(new AlignTarget(other.Y - item.Height, other.Y));
         }
-        item.X = Closest(item.X, xs, 24);
-        item.Y = Closest(item.Y, ys, 24);
+
+        var threshold = AlignThreshold();
+        (item.X, _guideX) = Closest(freeX, xs, threshold);
+        (item.Y, _guideY) = Closest(freeY, ys, threshold);
     }
 
-    static int Closest(int value, IEnumerable<int> edges, int threshold)
+    int AlignThreshold()
+    {
+        var scale = _viewScale <= 0.0001f ? 1f : _viewScale;
+        return Math.Clamp((int)Math.Round(14 / scale), 8, 240);
+    }
+
+    static (int Origin, int? Guide) Closest(int value, List<AlignTarget> targets, int threshold)
     {
         var best = value;
+        int? guide = null;
         var bestDelta = threshold + 1;
-        foreach (var edge in edges)
+        foreach (var target in targets)
         {
-            var delta = Math.Abs(edge - value);
+            var delta = Math.Abs(target.Origin - value);
             if (delta <= threshold && delta < bestDelta)
             {
-                best = edge;
+                best = target.Origin;
+                guide = target.Guide;
                 bestDelta = delta;
             }
         }
-        return best;
+
+        return (best, guide);
     }
+
+    void DrawGuides(Graphics g, List<(MonitorProfileEntry Entry, Rectangle Rect)> laid)
+    {
+        if (_drag == null || (_guideX == null && _guideY == null))
+            return;
+        var dragged = laid.FirstOrDefault(item => ReferenceEquals(item.Entry, _drag));
+        if (dragged.Entry == null)
+            return;
+
+        using var pen = new Pen(Color.FromArgb(220, 186, 230, 255), 1f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+        var rect = dragged.Rect;
+        if (_guideY is int guideY)
+        {
+            var y = GuidePoint(rect.Top, rect.Bottom, _drag.Y, _drag.Height, guideY);
+            g.DrawLine(pen, 8, y, Width - 8, y);
+        }
+
+        if (_guideX is int guideX)
+        {
+            var x = GuidePoint(rect.Left, rect.Right, _drag.X, _drag.Width, guideX);
+            var bottom = _disabled.Count == 0 ? Height - 8 : DisabledTop() - 8;
+            g.DrawLine(pen, x, 8, x, bottom);
+        }
+    }
+
+    static int GuidePoint(int start, int end, int origin, int size, int guide)
+    {
+        if (guide == origin)
+            return start;
+        if (guide == origin + size)
+            return Math.Max(start, end - 1);
+        return start + Math.Max(0, end - start) / 2;
+    }
+
+    readonly record struct AlignTarget(int Origin, int Guide);
 
     void Split()
     {

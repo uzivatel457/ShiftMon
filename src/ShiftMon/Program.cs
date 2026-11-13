@@ -81,6 +81,7 @@ internal static class Program
         var firstRun = !File.Exists(AppPaths.SettingsFile);
         var settings = AppSettings.Load();
         Loc.Use(settings.Language);
+        Theme.Use(settings.Theme);
         if (firstRun && InstallService.IsInstalled)
         {
             settings.RunAtStartup = true;
@@ -165,6 +166,21 @@ internal static class Program
             new MonitorProfileEntry { AdapterName = @"\\.\DISPLAY4", DeviceId = @"\\?\DISPLAY#CMN#uid", Enabled = false }
         ]);
         Check("stejný displej se nepočítá dvakrát", ghost.Count == 1 && ghost[0].AdapterName.EndsWith("DISPLAY1", StringComparison.OrdinalIgnoreCase));
+        static MonitorState MonitorFor(string id) => new() { DeviceId = id, AdapterName = id };
+        static MonitorProfileEntry EntryFor(string id) => new() { DeviceId = id, AdapterName = id, Enabled = true };
+        var laptop = MonitorFor("laptop");
+        var workA = MonitorFor("dell-a");
+        var workB = MonitorFor("dell-b");
+        var home = MonitorFor("home");
+        var workProfile = new DisplayProfile { Name = "work", Monitors = [EntryFor("laptop"), EntryFor("dell-a"), EntryFor("dell-b")] };
+        var homeProfile = new DisplayProfile { Name = "home", Monitors = [EntryFor("laptop"), EntryFor("home")] };
+        var known = new List<DisplayProfile> { workProfile, homeProfile };
+        Check("v práci se pozná profil práce", Workplace.Match(known, [laptop, workB, workA]) == workProfile);
+        Check("doma se pozná profil domova", Workplace.Match(known, [home, laptop]) == homeProfile);
+        Check("dva profily se stejnými monitory se neuhádnou", Workplace.Match(
+            [workProfile, new DisplayProfile { Name = "work-2", Monitors = [EntryFor("laptop"), EntryFor("dell-a"), EntryFor("dell-b")] }],
+            [laptop, workA, workB]) == null);
+        Check("neznámá obrazovka nic nespustí", Workplace.Match(known, [MonitorFor("other")]) == null);
 
         try
         {

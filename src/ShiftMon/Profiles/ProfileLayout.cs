@@ -41,6 +41,29 @@ internal static class ProfileLayout
         return false;
     }
 
+    public static void MoveBeside(MonitorProfileEntry item, IReadOnlyList<MonitorProfileEntry> others)
+    {
+        for (var pass = 0; pass < 8; pass++)
+        {
+            var moved = false;
+            foreach (var other in others)
+            {
+                if (ReferenceEquals(other, item) || !Overlaps(item, other))
+                    continue;
+                var dx = (item.X + item.Width / 2.0) - (other.X + other.Width / 2.0);
+                var dy = (item.Y + item.Height / 2.0) - (other.Y + other.Height / 2.0);
+                if (Math.Abs(dx) >= Math.Abs(dy))
+                    item.X = dx >= 0 ? other.X + other.Width : other.X - item.Width;
+                else
+                    item.Y = dy >= 0 ? other.Y + other.Height : other.Y - item.Height;
+                moved = true;
+            }
+
+            if (!moved)
+                return;
+        }
+    }
+
     public static bool Overlaps(MonitorProfileEntry a, MonitorProfileEntry b)
     {
         return a.X < b.X + b.Width

@@ -206,6 +206,24 @@ internal static class DisplayService
         return modes;
     }
 
+    public static bool IsCurrentLayout(IReadOnlyList<MonitorProfileEntry> desired)
+    {
+        var normalized = ProfileLayout.Normalize(desired);
+        if (normalized.Count == 0)
+            return false;
+        var current = Query();
+        var plan = new List<(MonitorState Device, MonitorProfileEntry Item)>();
+        foreach (var item in normalized)
+        {
+            var device = Match(current, item);
+            if (device == null)
+                return false;
+            plan.Add((device, item));
+        }
+
+        return IsSame(plan);
+    }
+
     public static ApplyResult Apply(IReadOnlyList<MonitorProfileEntry> desired)
     {
         try

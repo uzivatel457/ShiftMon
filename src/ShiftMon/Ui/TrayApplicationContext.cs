@@ -13,14 +13,19 @@ internal sealed class TrayApplicationContext : ApplicationContext
     readonly NotifyIcon _tray;
     readonly CaptionButtonManager _buttons;
     readonly SingleInstance _instance;
+    readonly SynchronizationContext? _ui;
+    readonly System.Windows.Forms.Timer _workplaceTimer = new() { Interval = 2500 };
     MainForm? _form;
     bool _applying;
+    int _pendingTab;
+    string? _seenWorkplace;
 
     public TrayApplicationContext(AppSettings settings, ProfileStore store, SingleInstance instance, string[] args)
     {
         _settings = settings;
         _store = store;
         _instance = instance;
+        _ui = SynchronizationContext.Current;
         _tray = new NotifyIcon
         {
             Visible = true,
@@ -43,7 +48,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _buttons.Start();
 
         _instance.StartServer(HandleCommand, SynchronizationContext.Current!);
+        _workplaceTimer.Tick += (_, _) =>
+        {
+            _workplaceTimer.Stop();
+            RecognizeWorkplace();
+        };
         SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
+        SystemEvents.UserPreferenceChanged += OnWindowsThemeChanged;
         Application.ApplicationExit += (_, _) => Cleanup();
 
         if (!HasArg(args, "--apply-profile", out _))
@@ -54,6 +65,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 startup.Stop();
                 startup.Dispose();
                 OfferReleaseNotes();
+                ScheduleWorkplace();
                 if (_settings.CheckUpdates && SynchronizationContext.Current != null)
                     UpdateService.Schedule(_settings, SynchronizationContext.Current);
             };
@@ -74,10 +86,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         if (_form == null || _form.IsDisposed)
         {
-            _form = new MainForm(_store, _settings, ApplyInteractive, Identify, SetButtons, ApplyLanguageChange);
+            _form = new MainForm(_store, _settings, ApplyInteractive, Identify, SetButtons, ApplyAppearanceChange, ResetWorkplace);
             _form.FormClosed += (_, _) => { if (_form is { IsDisposed: false }) { /* zůstává */ } };
         }
 
+        if (_pendingTab > 0)
+            _form.SelectTab(_pendingTab);
+        _pendingTab = 0;
         _form.Show();
         _form.WindowState = FormWindowState.Normal;
         _form.BringToFront();
@@ -218,6 +233,36 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         DisplayService.ClearModeCache();
         RebuildMenu();
+        ScheduleWorkplace();
+    }
+
+    void ResetWorkplace()
+    {
+        _seenWorkplace = null;
+        ScheduleWorkplace();
+    }
+
+    void ScheduleWorkplace()
+    {
+        if (!_settings.RecognizeWorkplace || _applying)
+            return;
+        _workplaceTimer.Stop();
+        _workplaceTimer.Start();
+    }
+
+    void RecognizeWorkplace()
+    {
+        if (!_settings.RecognizeWorkplace || _applying)
+            return;
+        var attached = DisplayService.Query();
+        var signature = Workplace.Signature(attached);
+        if (signature.Length == 0 || signature == _seenWorkplace)
+            return;
+        _seenWorkplace = signature;
+        var profile = Workplace.Match(_store.Profiles, attached);
+        if (profile == null || DisplayService.IsCurrentLayout(profile.Monitors))
+            return;
+        ApplyInteractive(profile);
     }
 
     ContextMenuStrip BuildMenu()
@@ -264,6 +309,27 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _form?.AllowExit();
             ExitThread();
         });
+        if (!Theme.Dark)
+        {
+            menu.RenderMode = ToolStripRenderMode.System;
+            return;
+        }
+
+        menu.Renderer = new ToolStripProfessionalRenderer(new Theme.ThemeMenuColors());
+        menu.BackColor = Theme.Surface;
+        menu.ForeColor = Theme.Text;
+        foreach (ToolStripItem item in menu.Items)
+            PaintMenuItem(item);
+    }
+
+    static void PaintMenuItem(ToolStripItem item)
+    {
+        item.ForeColor = Theme.Text;
+        item.BackColor = Theme.Surface;
+        if (item is not ToolStripMenuItem parent)
+            return;
+        foreach (ToolStripItem child in parent.DropDownItems)
+            PaintMenuItem(child);
     }
 
     void OfferReleaseNotes()
@@ -280,9 +346,24 @@ internal sealed class TrayApplicationContext : ApplicationContext
         notes.ShowDialog();
     }
 
-    void ApplyLanguageChange()
+    void OnWindowsThemeChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is not UserPreferenceCategory.General and not UserPreferenceCategory.Color)
+            return;
+        if (!string.Equals(_settings.Theme, "auto", StringComparison.OrdinalIgnoreCase))
+            return;
+        var wasDark = Theme.Dark;
+        Theme.Use("auto");
+        if (wasDark == Theme.Dark)
+            return;
+        if (_ui != null)
+            _ui.Post(_ => ApplyAppearanceChange(), null);
+    }
+
+    void ApplyAppearanceChange()
     {
         var id = _form?.SelectedProfileId;
+        _pendingTab = _form?.SelectedTabIndex ?? 0;
         if (_form is { IsDisposed: false })
         {
             _form.SaveIfDirty();
@@ -298,7 +379,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     void Cleanup()
     {
+        _workplaceTimer.Stop();
+        _workplaceTimer.Dispose();
         SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
+        SystemEvents.UserPreferenceChanged -= OnWindowsThemeChanged;
         _buttons.Dispose();
         _tray.Visible = false;
         _tray.Dispose();

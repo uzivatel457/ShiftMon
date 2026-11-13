@@ -21,7 +21,8 @@ internal sealed class ConfirmDisplayForm : Form
         ShowInTaskbar = true;
         ClientSize = new Size(520, 190);
         Font = new Font("Segoe UI", 10f);
-        BackColor = Color.White;
+        BackColor = Theme.Surface;
+        ForeColor = Theme.Text;
 
         var title = new Label
         {
@@ -39,14 +40,14 @@ internal sealed class ConfirmDisplayForm : Form
             AutoSize = true,
             MaximumSize = new Size(480, 0),
             Location = new Point(20, 52),
-            ForeColor = Color.FromArgb(70, 76, 86)
+            ForeColor = Theme.Muted
         };
         _countdown = new Label
         {
             Text = Loc.T("Zbývá 15 s", "15 s left"),
             AutoSize = true,
             Location = new Point(20, 108),
-            ForeColor = Color.FromArgb(31, 111, 184)
+            ForeColor = Theme.Accent
         };
         var keep = new Button
         {
@@ -55,8 +56,8 @@ internal sealed class ConfirmDisplayForm : Form
             AutoSize = true,
             MinimumSize = new Size(110, 34),
             Padding = new Padding(12, 4, 12, 4),
-            BackColor = Color.FromArgb(31, 111, 184),
-            ForeColor = Color.White,
+            BackColor = Theme.Accent,
+            ForeColor = Theme.AccentText,
             FlatStyle = FlatStyle.Flat
         };
         keep.FlatAppearance.BorderSize = 0;
@@ -81,6 +82,8 @@ internal sealed class ConfirmDisplayForm : Form
         Controls.AddRange([title, detail, _countdown, actions]);
         AcceptButton = keep;
         CancelButton = revert;
+        Theme.StyleTree(this);
+        Theme.Attach(this);
 
         _timer = new System.Windows.Forms.Timer { Interval = 1000 };
         _timer.Tick += (_, _) =>
